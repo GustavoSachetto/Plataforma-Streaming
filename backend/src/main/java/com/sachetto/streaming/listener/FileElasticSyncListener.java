@@ -26,6 +26,8 @@ public class FileElasticSyncListener {
                 .id(file.getId().toString())
                 .name(file.getName())
                 .content(file.getContent())
+                .thumbnail("http://localhost:8080/api/v1/download/" + file.getId() + "/thumbnail")
+                .createdAt(file.getCreatedAt())
                 .build();
         
         elasticsearchOperations.save(fileRead);

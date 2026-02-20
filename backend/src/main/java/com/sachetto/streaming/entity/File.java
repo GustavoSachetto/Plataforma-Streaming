@@ -43,6 +43,7 @@ public class File {
 	private String name;
 	private String content;
 	private Boolean valid;
+	private String thumbnail;
 	
 	@CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)

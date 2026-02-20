@@ -11,10 +11,24 @@ export interface ManifestResponseDto {
     chunks: ChunkIndexResponseDto[];
 }
 
+export interface PageResponse<T> {
+    content: T[];
+    totalPages: number;
+    totalElements: number;
+    size: number;
+    number: number;
+}
+
+export interface CatalogSearchResponseDto {
+    id: string;
+    name: string;
+    content: string;
+    thumbnail: string;
+}
+
 export interface FileRead {
     id: string;
     filename: string;
-    // adding optional fields just in case
     fileSize?: number;
     fileHash?: string;
     [key: string]: any;

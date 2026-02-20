@@ -27,8 +27,8 @@ public class UploadController {
 	
 	private final UploadService uploadService;
 
-	@PostMapping("/init")
-	public ResponseEntity<InitResponseDto> init(@RequestBody @Valid InitRequestDto initRequestDto) {
+	@PostMapping(value = "/init", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<InitResponseDto> init(@Valid @ModelAttribute InitRequestDto initRequestDto) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(uploadService.init(initRequestDto));
 	}
 	

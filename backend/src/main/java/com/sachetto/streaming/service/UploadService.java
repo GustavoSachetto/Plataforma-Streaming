@@ -42,6 +42,10 @@ public class UploadService {
 				.content(initRequestDto.filecontent())
 				.valid(false)
 				.build());
+				
+		String thumbnailPath = storageService.saveThumbnail(file.getId(), initRequestDto.thumbnail());
+		file.setThumbnail(thumbnailPath);
+		fileRepository.save(file);
 		
 		log.info("Upload inicializado com ID: {}", file.getId());
 		chunkService.registerUpload(file.getId(), initRequestDto.totalChunks());

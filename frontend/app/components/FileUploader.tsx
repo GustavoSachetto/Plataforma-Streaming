@@ -1,50 +1,58 @@
 "use client";
 
-import { useState, useRef } from "react";
-
+import { useState, useRef, useEffect } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 export default function FileUploader() {
     const [loaded, setLoaded] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [file, setFile] = useState<File | null>(null);
+    const [thumbnail, setThumbnail] = useState<File | null>(null);
     const [customFilename, setCustomFilename] = useState("");
     const [fileContent, setFileContent] = useState("");
     const [progress, setProgress] = useState(0);
-    const [status, setStatus] = useState("");
+    const [status, setStatus] = useState("Initializing system...");
     const [uploadId, setUploadId] = useState("");
+
     const ffmpegRef = useRef<FFmpeg | null>(null);
-    const messageRef = useRef<HTMLParagraphElement | null>(null);
 
-    const load = async () => {
-        setIsLoading(true);
-        const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    useEffect(() => {
+        let isMounted = true;
 
-        if (!ffmpegRef.current) {
-            ffmpegRef.current = new FFmpeg();
-        }
-        const ffmpeg = ffmpegRef.current;
+        const loadFFmpeg = async () => {
+            if (loaded) return;
+            setIsLoading(true);
+            const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
 
-        ffmpeg.on("log", ({ message }) => {
-            if (messageRef.current) messageRef.current.innerHTML = message;
-            console.log(message);
-        });
+            if (!ffmpegRef.current) {
+                ffmpegRef.current = new FFmpeg();
+            }
+            const ffmpeg = ffmpegRef.current;
 
-        try {
-            await ffmpeg.load({
-                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-                wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-            });
-            setLoaded(true);
-            setStatus("FFmpeg loaded");
-        } catch (error) {
-            console.error("Failed to load FFmpeg", error);
-            setStatus("Failed to load FFmpeg");
-        } finally {
-            setIsLoading(false);
-        }
-    };
+            try {
+                await ffmpeg.load({
+                    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+                    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+                });
+                if (isMounted) {
+                    setLoaded(true);
+                    setStatus("");
+                }
+            } catch (error) {
+                console.error("Failed to load FFmpeg", error);
+                if (isMounted) setStatus("Failed to load processing engine. Please try again.");
+            } finally {
+                if (isMounted) setIsLoading(false);
+            }
+        };
+
+        loadFFmpeg();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     const calculateSHA256 = async (blob: Blob): Promise<string> => {
         const buffer = await blob.arrayBuffer();
@@ -54,11 +62,12 @@ export default function FileUploader() {
     };
 
     const uploadFile = async () => {
-        if (!file || !loaded) return;
+        if (!file || !thumbnail || !loaded) return;
         const ffmpeg = ffmpegRef.current;
         if (!ffmpeg) return;
 
-        setStatus("Segmenting file...");
+        setStatus("Segmenting video file...");
+        setIsLoading(true);
         const inputName = "input.mp4";
         await ffmpeg.writeFile(inputName, await fetchFile(file));
 
@@ -77,12 +86,12 @@ export default function FileUploader() {
 
         if (chunkFiles.length === 0) {
             setStatus("No chunks created. Upload failed.");
+            setIsLoading(false);
             return;
         }
 
         setStatus(`Found ${chunkFiles.length} chunks. Calculating total hash...`);
 
-        // Read all chunks to calculate total hash
         const chunksData: Uint8Array[] = [];
         let totalSize = 0;
 
@@ -95,7 +104,6 @@ export default function FileUploader() {
             totalSize += uint8Data.length;
         }
 
-        // Concatenate all chunks
         const fullBuffer = new Uint8Array(totalSize);
         let offset = 0;
         for (const chunkData of chunksData) {
@@ -107,35 +115,32 @@ export default function FileUploader() {
 
         setStatus("Initializing upload...");
 
+        const initFormData = new FormData();
+        initFormData.append("fileSize", totalSize.toString());
+        initFormData.append("filename", customFilename || file.name);
+        initFormData.append("filecontent", fileContent);
+        initFormData.append("fileHash", fileHash);
+        initFormData.append("totalChunks", chunkFiles.length.toString());
+        initFormData.append("thumbnail", thumbnail);
+
         const initRes = await fetch("http://localhost:8080/api/v1/upload/init", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                fileSize: totalSize,
-                filename: customFilename,
-                filecontent: fileContent,
-                fileHash,
-                totalChunks: chunkFiles.length
-            })
+            body: initFormData
         });
 
         if (!initRes.ok) {
             setStatus("Failed to initialize upload");
-            // Cleanup memory if init fails
             chunksData.length = 0;
+            setIsLoading(false);
             return;
         }
 
         const { uploadId } = await initRes.json();
         setUploadId(uploadId);
-
         setStatus("Starting upload...");
 
         for (let i = 0; i < chunkFiles.length; i++) {
             const chunkName = chunkFiles[i].name;
-            // Create a copy to ensure we use standard ArrayBuffer if needed, or cast to any to satisfy TS
-            // (since standard Blob supports ArrayBufferView even if backed by SAB in some contexts, 
-            // but strict TS types might complain).
             const chunkBlob = new Blob([chunksData[i] as unknown as BlobPart], { type: "video/mp4" });
             const chunkHash = await calculateSHA256(chunkBlob);
 
@@ -145,7 +150,7 @@ export default function FileUploader() {
             formData.append("chunkHash", chunkHash);
             formData.append("file", chunkBlob, chunkName);
 
-            setStatus(`Uploading chunk ${i + 1}/${chunkFiles.length}...`);
+            setStatus(`Uploading chunk ${i + 1} of ${chunkFiles.length}...`);
 
             const chunkRes = await fetch("http://localhost:8080/api/v1/upload/chunk", {
                 method: "POST",
@@ -154,15 +159,11 @@ export default function FileUploader() {
 
             if (!chunkRes.ok) {
                 setStatus(`Failed to upload chunk ${i + 1}`);
-                // Cleanup
                 chunksData.length = 0;
+                setIsLoading(false);
                 return;
             }
 
-            // We don't delete from FFmpeg here because we already read them into memory (chunksData).
-            // But good practice to clean up FFmpeg FS if needed, though we read into memory so it's duplicated now.
-            // If memory is tight, we should have hashed incrementally or re-read. 
-            // For now, keeping in memory is simpler given we needed to concat for hash.
             await ffmpeg.deleteFile(chunkName);
             setProgress(((i + 1) / chunkFiles.length) * 100);
         }
@@ -174,84 +175,126 @@ export default function FileUploader() {
             body: JSON.stringify({ uploadId })
         });
 
-        setStatus("Upload complete!");
+        setStatus("Upload complete successfully!");
+        setIsLoading(false);
         await ffmpeg.deleteFile(inputName);
-        chunksData.length = 0; // Clear memory
+        chunksData.length = 0;
     };
 
     return (
-        <div className="flex flex-col gap-4 p-4 border rounded-lg max-w-xl mx-auto mt-10">
-            <h2 className="text-xl font-bold">FFmpeg File Uploader</h2>
+        <div className="w-full">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Publicar Vídeo</h2>
 
-            {!loaded ? (
-                <button
-                    onClick={load}
-                    disabled={isLoading}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
-                >
-                    {isLoading ? "Loading FFmpeg..." : "Load FFmpeg"}
-                </button>
-            ) : (
-                <div className="flex flex-col gap-4">
-                    <div className="text-green-600 font-semibold">FFmpeg is ready</div>
-                    <input
-                        type="text"
-                        placeholder="Nome desejado do arquivo"
-                        value={customFilename}
-                        onChange={(e) => setCustomFilename(e.target.value)}
-                        className="block w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-violet-500 focus:outline-none"
-                    />
+            <div className="flex flex-col gap-5">
+                {!loaded && isLoading ? (
+                    <div className="flex flex-col items-center justify-center p-12 bg-gray-50 border border-gray-200 rounded-xl space-y-4">
+                        <svg className="w-8 h-8 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <p className="text-gray-600 font-medium">Carregando sistema de processamento...</p>
+                        <p className="text-sm text-gray-400">Isso pode levar alguns instantes na primeira vez</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-sm font-semibold text-gray-800">Nome do Arquivo</label>
+                            <input
+                                type="text"
+                                placeholder="Ex: Meu Primeiro Video.mp4"
+                                value={customFilename}
+                                onChange={(e) => setCustomFilename(e.target.value)}
+                                className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow min-w-0"
+                            />
+                        </div>
 
-                    <textarea
-                        placeholder="Conteúdo do arquivo"
-                        value={fileContent}
-                        onChange={(e) => setFileContent(e.target.value)}
-                        className="block w-full p-2 border border-gray-300 rounded text-sm h-24 focus:ring-1 focus:ring-violet-500 focus:outline-none"
-                    />
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-sm font-semibold text-gray-800">Descrição e Conteúdo</label>
+                            <textarea
+                                placeholder="Forneça os detalhes ou as letras relacionadas ao vídeo..."
+                                value={fileContent}
+                                onChange={(e) => setFileContent(e.target.value)}
+                                className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm h-32 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow resize-none"
+                            />
+                        </div>
 
-                    <input
-                        type="file"
-                        onChange={(e) => {
-                            const selectedFile = e.target.files?.item(0) || null;
-                            setFile(selectedFile);
-                            if (selectedFile && !customFilename) {
-                                setCustomFilename(selectedFile.name);
-                            }
-                        }}
-                        className="block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-full file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-violet-50 file:text-violet-700
-                  hover:file:bg-violet-100"
-                    />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-sm font-semibold text-gray-800">Arquivo de Video (MP4)</label>
+                                <div className="border border-gray-300 bg-white rounded-xl px-2 py-2 flex items-center shadow-sm">
+                                    <input
+                                        type="file"
+                                        accept="video/*"
+                                        onChange={(e) => {
+                                            const selectedFile = e.target.files?.item(0) || null;
+                                            setFile(selectedFile);
+                                            if (selectedFile && !customFilename) {
+                                                setCustomFilename(selectedFile.name);
+                                            }
+                                        }}
+                                        className="w-full text-sm text-gray-500 file:cursor-pointer file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors"
+                                    />
+                                </div>
+                            </div>
 
-                    {file && customFilename.trim() !== "" && fileContent.trim() !== "" && (
-                        <button
-                            onClick={uploadFile}
-                            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold"
-                        >
-                            Upload & Segment
-                        </button>
-                    )}
-                </div>
-            )}
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-sm font-semibold text-gray-800">Imagem de Capa (Thumbnail)</label>
+                                <div className="border border-gray-300 bg-white rounded-xl px-2 py-2 flex items-center shadow-sm">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const selectedFile = e.target.files?.item(0) || null;
+                                            setThumbnail(selectedFile);
+                                        }}
+                                        className="w-full text-sm text-gray-500 file:cursor-pointer file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors"
+                                    />
+                                </div>
+                                {thumbnail && (
+                                    <div className="mt-2 w-full aspect-video rounded-xl border border-gray-200 overflow-hidden bg-black flex items-center justify-center relative shadow-sm">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                            src={URL.createObjectURL(thumbnail)}
+                                            alt="Preview"
+                                            className="w-full h-full object-contain"
+                                            onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
 
-            {status && <div className="mt-2 text-sm text-gray-700">{status}</div>}
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                            <button
+                                onClick={uploadFile}
+                                disabled={!file || !thumbnail || !customFilename.trim() || !fileContent.trim() || isLoading}
+                                className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
+                            >
+                                {isLoading && loaded ? (
+                                    <>
+                                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        Processando...
+                                    </>
+                                ) : "Realizar Upload"}
+                            </button>
+                        </div>
 
-            {uploadId && (
-                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800 break-all">
-                    <strong>Upload ID:</strong> {uploadId}
-                </div>
-            )}
+                        {status && (
+                            <div className="mt-4 p-4 rounded-xl border flex items-center gap-3 text-sm bg-blue-50 border-blue-100 text-blue-800 shadow-sm">
+                                <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                                <span className="font-medium">{status}</span>
+                            </div>
+                        )}
 
-            {progress > 0 && (
-                <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
-                </div>
-            )}
+                        {progress > 0 && progress < 100 && (
+                            <div className="w-full bg-gray-100 rounded-full h-3 shadow-inner overflow-hidden border border-gray-200">
+                                <div className="bg-blue-600 h-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
+                            </div>
+                        )}
 
-            <p ref={messageRef} className="text-xs text-gray-500 font-mono mt-2 h-20 overflow-y-auto border p-2 bg-gray-50"></p>
+                        {progress === 100 && !isLoading && (
+                            <div className="w-full bg-green-500 h-3 shadow-inner rounded-full overflow-hidden border border-green-600"></div>
+                        )}
+                    </>
+                )}
+            </div>
         </div>
     );
 }

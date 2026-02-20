@@ -11,6 +11,7 @@ import com.sachetto.streaming.entity.File;
 import com.sachetto.streaming.entity.Usuario;
 import com.sachetto.streaming.repository.FileRepository;
 import com.sachetto.streaming.repository.UsuarioRepository;
+import com.sachetto.streaming.exception.ArquivoIOException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -86,5 +87,15 @@ public class DownloadService {
 		ffmpegService.export(playlistPath, exportPath, codigo);
 
 		return storageService.load(exportPath.toString());
+    }
+
+    public Resource getThumbnail(UUID uploadId) {
+        File file = fileRepository.findById(uploadId).orElseThrow();
+        
+        if (file.getThumbnail() == null) {
+            throw new ArquivoIOException();
+        }
+
+        return storageService.load(file.getThumbnail());
     }
 }

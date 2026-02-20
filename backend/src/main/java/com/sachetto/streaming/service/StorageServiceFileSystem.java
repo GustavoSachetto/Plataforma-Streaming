@@ -11,7 +11,7 @@ import java.net.MalformedURLException;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
-
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.stereotype.Service;
 
 import com.sachetto.streaming.exception.ArquivoIOException;
@@ -61,6 +61,35 @@ public class StorageServiceFileSystem implements StorageService {
             }
         } catch (MalformedURLException e) {
             log.error("Erro ao carregar arquivo: {}", path, e);
+            throw new ArquivoIOException();
+        }
+    }
+
+    @Override
+    public String saveThumbnail(UUID uploadId, MultipartFile file) {
+        try {
+            Path pastaUpload = RAIZ_UPLOADS.resolve(uploadId.toString());
+            
+            if (!Files.exists(pastaUpload)) {
+                log.debug("Criando diretório de upload: {}", pastaUpload);
+                Files.createDirectories(pastaUpload);
+            }
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+            String nomeArquivo = "thumbnail" + extension;
+            Path destino = pastaUpload.resolve(nomeArquivo);
+            
+            log.info("Salvando thumbnail: {} para uploadId: {}", nomeArquivo, uploadId);
+            Files.copy(file.getInputStream(), destino, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("Thumbnail salvo em: {}", destino.toAbsolutePath());
+            
+            return destino.toAbsolutePath().toString();
+        } catch (IOException e) {
+            log.error("Erro ao salvar thumbnail para uploadId: {}", uploadId, e);
             throw new ArquivoIOException();
         }
     }

@@ -146,27 +146,36 @@ public class FFmpegService {
             }
 
             String filterComplex = WATERMARK_FILTER_BASE;
+            Path tempWatermarkImage = null;
+
+            java.util.List<String> cmdList = new java.util.ArrayList<>();
+            cmdList.add(FFMPEG_CMD);
+            cmdList.add("-y");
+            cmdList.add("-copyts");
+            cmdList.add("-i");
+            cmdList.add(inputPath.toAbsolutePath().toString());
+            cmdList.add("-i");
+            cmdList.add(faviconPath);
 
             if (code != null && !code.isEmpty()) {
-                String escapedCode = code.replace(":", "\\:").replace("'", "'\\\\''");
-                filterComplex += "[v1];[v1]drawtext=text='" + escapedCode + "':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=10:y=10";
+                tempWatermarkImage = createRoundedWatermarkText(code);
+                cmdList.add("-i");
+                cmdList.add(tempWatermarkImage.toAbsolutePath().toString());
+                filterComplex += "[v1];[v1][2:v]overlay=10:10";
             }
 
             log.debug("Usando favicon: {}", faviconPath);
 
-            ProcessBuilder pb = new ProcessBuilder(
-                FFMPEG_CMD,
-                "-y",
-                "-copyts", 
-                "-i", inputPath.toAbsolutePath().toString(),
-                "-i", faviconPath,
+            cmdList.addAll(java.util.Arrays.asList(
                 "-filter_complex", filterComplex,
                 "-c:v", CODEC_H264,
                 "-crf", "20",
                 "-an", 
                 "-muxdelay", "0",
                 outputPath.toAbsolutePath().toString()
-            );
+            ));
+
+            ProcessBuilder pb = new ProcessBuilder(cmdList);
 
             pb.redirectErrorStream(true);
             Process process = pb.start();
@@ -175,6 +184,13 @@ public class FFmpegService {
             logProcessOutputAndAppend(process, "FFmpeg Watermark:", outputLog);
 
             int exitCode = process.waitFor();
+
+            if (tempWatermarkImage != null) {
+                try {
+                    Files.deleteIfExists(tempWatermarkImage);
+                } catch (Exception ignored) {}
+            }
+
             if (exitCode != 0) {
                 log.error("Erro ao aplicar watermark. Cód: {}. Check logs for details.", exitCode);
                 log.error("FFmpeg Output/Error: {}", outputLog.toString());
@@ -201,25 +217,34 @@ public class FFmpegService {
             }
 
             String filterComplex = WATERMARK_FILTER_BASE;
+            Path tempWatermarkImage = null;
+
+            java.util.List<String> cmdList = new java.util.ArrayList<>();
+            cmdList.add(FFMPEG_CMD);
+            cmdList.add("-y");
+            cmdList.add("-copyts");
+            cmdList.add("-i");
+            cmdList.add(inputPath.toAbsolutePath().toString());
+            cmdList.add("-i");
+            cmdList.add(faviconPath);
 
             if (code != null && !code.isEmpty()) {
-                String escapedCode = code.replace(":", "\\:").replace("'", "'\\\\''");
-                filterComplex += "[v1];[v1]drawtext=text='" + escapedCode + "':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=10:y=10";
+                tempWatermarkImage = createRoundedWatermarkText(code);
+                cmdList.add("-i");
+                cmdList.add(tempWatermarkImage.toAbsolutePath().toString());
+                filterComplex += "[v1];[v1][2:v]overlay=10:10";
             }
 
-            ProcessBuilder pb = new ProcessBuilder(
-                FFMPEG_CMD,
-                "-y",
-                "-copyts",
-                "-i", inputPath.toAbsolutePath().toString(),
-                "-i", faviconPath,
+            cmdList.addAll(java.util.Arrays.asList(
                 "-filter_complex", filterComplex,
                 "-c:v", CODEC_H264,
                 "-crf", "20",
                 "-an",
                 "-muxdelay", "0",
                 outputPath.toAbsolutePath().toString()
-            );
+            ));
+
+            ProcessBuilder pb = new ProcessBuilder(cmdList);
 
             pb.redirectErrorStream(true);
             Process process = pb.start();
@@ -228,6 +253,13 @@ public class FFmpegService {
             logProcessOutputAndAppend(process, "FFmpeg Export:", outputLog);
 
             int exitCode = process.waitFor();
+
+            if (tempWatermarkImage != null) {
+                try {
+                    Files.deleteIfExists(tempWatermarkImage);
+                } catch (Exception ignored) {}
+            }
+
             if (exitCode != 0) {
                 log.error("Erro ao exportar vídeo. Cód: {}. Check logs for details.", exitCode);
                 log.error("FFmpeg Output/Error: {}", outputLog.toString());
@@ -273,8 +305,46 @@ public class FFmpegService {
         try {
             java.io.File resource = org.springframework.util.ResourceUtils.getFile(FAVICON_CLASSPATH);
             return resource.getAbsolutePath();
-        } catch (java.io.FileNotFoundException _) {
+        } catch (java.io.FileNotFoundException ignored) {
             return FAVICON_FALLBACK_PATH;
         }
+    }
+
+    private Path createRoundedWatermarkText(String text) throws IOException {
+        int padding = 10;
+        int fontSize = 24;
+        int cornerRadius = 12;
+
+        java.awt.Font font = new java.awt.Font("SansSerif", java.awt.Font.BOLD, fontSize);
+        
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g2d = img.createGraphics();
+        g2d.setFont(font);
+        java.awt.FontMetrics fm = g2d.getFontMetrics();
+        int textWidth = fm.stringWidth(text);
+        int textHeight = fm.getHeight();
+        g2d.dispose();
+
+        int width = textWidth + padding * 2;
+        int height = textHeight + padding * 2;
+
+        img = new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        g2d = img.createGraphics();
+        
+        g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g2d.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        g2d.setColor(new java.awt.Color(0, 0, 0, 128));
+        g2d.fillRoundRect(0, 0, width, height, cornerRadius, cornerRadius);
+
+        g2d.setColor(java.awt.Color.WHITE);
+        g2d.setFont(font);
+        g2d.drawString(text, padding, fm.getAscent() + padding);
+        g2d.dispose();
+
+        Path tempFile = Files.createTempFile("watermark_text_", ".png");
+        javax.imageio.ImageIO.write(img, "png", tempFile.toFile());
+        
+        return tempFile;
     }
 }

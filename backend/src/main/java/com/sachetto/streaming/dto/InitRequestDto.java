@@ -1,5 +1,7 @@
 package com.sachetto.streaming.dto;
 
+import org.springframework.web.multipart.MultipartFile;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -20,5 +22,8 @@ public record InitRequestDto(
 	
 	@NotNull
 	@Positive
-	Long totalChunks
+	Long totalChunks,
+
+	@NotNull
+	MultipartFile thumbnail
 ) { }

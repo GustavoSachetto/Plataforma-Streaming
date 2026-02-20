@@ -44,4 +44,12 @@ public class DownloadController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
                 .body(resource);
     }
+    
+    @GetMapping("/{uploadId}/thumbnail")
+    public ResponseEntity<Resource> getThumbnail(@PathVariable UUID uploadId) {
+        Resource resource = downloadService.getThumbnail(uploadId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_JPEG)
+                .body(resource);
+    }
 }
