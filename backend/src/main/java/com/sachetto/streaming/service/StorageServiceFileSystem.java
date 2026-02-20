@@ -18,8 +18,8 @@ import com.sachetto.streaming.exception.ArquivoIOException;
 
 import lombok.extern.slf4j.Slf4j;
 
-@Service
 @Slf4j
+@Service
 public class StorageServiceFileSystem implements StorageService {
 
     private static final Path RAIZ_UPLOADS = Paths.get("uploads");

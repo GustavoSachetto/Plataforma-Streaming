@@ -8,6 +8,7 @@ class StreamingApplicationTests {
 
 	@Test
 	void contextLoads() {
+		// Method is intentionally empty. The test just verifies if the Spring application context starts successfully.
 	}
 
 }

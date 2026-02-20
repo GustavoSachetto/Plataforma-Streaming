@@ -18,11 +18,7 @@ public class CatalogService {
     public List<CatalogSearchResponseDto> searchCatalog(String query) {
         return fileReadRepository.searchByNameOrContent(query)
                 .stream()
-                .map(fileRead -> CatalogSearchResponseDto.builder()
-                        .id(fileRead.getId())
-                        .name(fileRead.getName())
-                        .content(fileRead.getContent())
-                        .build())
+                .map(fileRead -> new CatalogSearchResponseDto(fileRead.getId(), fileRead.getName(), fileRead.getContent()))
                 .toList();
     }
 }

@@ -21,9 +21,16 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class FFmpegService {
 
+    private static final String UPLOADS_DIR = "uploads";
+    private static final String FFMPEG_CMD = "ffmpeg";
+    private static final String FAVICON_CLASSPATH = "classpath:static/favicon.ico";
+    private static final String FAVICON_FALLBACK_PATH = "src/main/resources/static/favicon.ico";
+    private static final String WATERMARK_FILTER_BASE = "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15";
+    private static final String CODEC_H264 = "libx264";
+
     public Stream<Path> split(java.io.File inputFile, UUID uploadId) {
         log.info("Iniciando split do arquivo: {} para uploadId: {}", inputFile.getName(), uploadId);
-        Path outputDirPath = Paths.get("uploads", uploadId.toString());
+        Path outputDirPath = Paths.get(UPLOADS_DIR, uploadId.toString());
 
         try {
             if (Files.notExists(outputDirPath)) {
@@ -33,7 +40,7 @@ public class FFmpegService {
 
             String outputPattern = outputDirPath.toAbsolutePath().resolve("video_%03d.ts").toString();           
             ProcessBuilder pb = new ProcessBuilder(
-                "ffmpeg",
+                FFMPEG_CMD,
                 "-i", inputFile.getAbsolutePath(),
                 "-c", "copy",           
                 "-map", "0",            
@@ -67,7 +74,7 @@ public class FFmpegService {
     
     public void formatHLS(List<String> chunksPath, UUID uploadId) {
         log.info("Iniciando formatação do HLS para uploadId: {}", uploadId);
-        Path outputDirPath = Paths.get("uploads", uploadId.toString());
+        Path outputDirPath = Paths.get(UPLOADS_DIR, uploadId.toString());
         
         try {
             if (Files.notExists(outputDirPath)) {
@@ -84,11 +91,11 @@ public class FFmpegService {
             String playlistPath = outputDirPath.toAbsolutePath().resolve("playlist.m3u8").toString();
             
             ProcessBuilder pb = new ProcessBuilder(
-                "ffmpeg",
+                FFMPEG_CMD,
                 "-f", "concat",
                 "-safe", "0",
                 "-i", listFilePath.toAbsolutePath().toString(),
-                "-c:v", "libx264",
+                "-c:v", CODEC_H264,
                 "-preset", "veryfast",
                 "-g", "60",
                 "-keyint_min", "60",
@@ -105,12 +112,7 @@ public class FFmpegService {
             log.info("Executando comando FFmpeg para HLS...");
             Process process = pb.start();
 
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    log.debug("FFmpeg: {}", line);
-                }
-            }
+            logProcessOutput(process, "FFmpeg:");
 
             int exitCode = process.waitFor();
             if (exitCode != 0) {
@@ -121,11 +123,7 @@ public class FFmpegService {
             log.info("HLS formatado com sucesso. Removendo chunks...");
             
             for (String chunk : chunksPath) {
-                try {
-                    Files.deleteIfExists(Paths.get(chunk));
-                } catch (IOException e) {
-                    log.warn("Erro ao remover chunk: {}", chunk, e);
-                }
+                deleteChunk(chunk);
             }
             
             Files.deleteIfExists(listFilePath);
@@ -139,40 +137,31 @@ public class FFmpegService {
     public void addWatermark(Path inputPath, Path outputPath, String code) {
         log.info("Adicionando marca d'água em: {}", inputPath.getFileName());
         try {
-            String faviconPath;
-            try {
-                java.io.File resource = org.springframework.util.ResourceUtils.getFile("classpath:static/favicon.ico");
-                faviconPath = resource.getAbsolutePath();
-            } catch (java.io.FileNotFoundException e) {
-                 faviconPath = "src/main/resources/static/favicon.ico";
-            }
+            String faviconPath = getFaviconPath();
 
-            // Verify if favicon exists
             java.io.File faviconFile = new java.io.File(faviconPath);
             if (!faviconFile.exists()) {
                 log.error("Favicon não encontrado em: {}", faviconPath);
                 throw new java.io.FileNotFoundException("Favicon não encontrado: " + faviconPath);
             }
 
-            String filterComplex = "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15";
+            String filterComplex = WATERMARK_FILTER_BASE;
 
             if (code != null && !code.isEmpty()) {
                 String escapedCode = code.replace(":", "\\:").replace("'", "'\\\\''");
                 filterComplex += "[v1];[v1]drawtext=text='" + escapedCode + "':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=10:y=10";
             }
 
-
             log.debug("Usando favicon: {}", faviconPath);
 
-            // ffmpeg -i playlist0.ts -i ... -filter_complex "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15" -c:v libx264 -crf 20 -c:a copy teste.ts
             ProcessBuilder pb = new ProcessBuilder(
-                "ffmpeg",
+                FFMPEG_CMD,
                 "-y",
                 "-copyts", 
                 "-i", inputPath.toAbsolutePath().toString(),
                 "-i", faviconPath,
                 "-filter_complex", filterComplex,
-                "-c:v", "libx264",
+                "-c:v", CODEC_H264,
                 "-crf", "20",
                 "-an", 
                 "-muxdelay", "0",
@@ -183,13 +172,7 @@ public class FFmpegService {
             Process process = pb.start();
 
             StringBuilder outputLog = new StringBuilder();
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    log.debug("FFmpeg Watermark: {}", line);
-                    outputLog.append(line).append("\n");
-                }
-            }
+            logProcessOutputAndAppend(process, "FFmpeg Watermark:", outputLog);
 
             int exitCode = process.waitFor();
             if (exitCode != 0) {
@@ -205,16 +188,11 @@ public class FFmpegService {
             throw new ArquivoIOException();
         }
     }
-    public void export(Path inputPath, Path outputPath) {
+    
+    public void export(Path inputPath, Path outputPath, String code) {
         log.info("Exporting video with watermark: {}", inputPath.getFileName());
         try {          
-            String faviconPath;
-            try {
-                java.io.File resource = org.springframework.util.ResourceUtils.getFile("classpath:static/favicon.ico");
-                faviconPath = resource.getAbsolutePath();
-            } catch (java.io.FileNotFoundException e) {
-                 faviconPath = "src/main/resources/static/favicon.ico";
-            }
+            String faviconPath = getFaviconPath();
 
             java.io.File faviconFile = new java.io.File(faviconPath);
             if (!faviconFile.exists()) {
@@ -222,14 +200,21 @@ public class FFmpegService {
                 throw new java.io.FileNotFoundException("Favicon não encontrado: " + faviconPath);
             }
 
+            String filterComplex = WATERMARK_FILTER_BASE;
+
+            if (code != null && !code.isEmpty()) {
+                String escapedCode = code.replace(":", "\\:").replace("'", "'\\\\''");
+                filterComplex += "[v1];[v1]drawtext=text='" + escapedCode + "':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=10:y=10";
+            }
+
             ProcessBuilder pb = new ProcessBuilder(
-                "ffmpeg",
+                FFMPEG_CMD,
                 "-y",
                 "-copyts",
                 "-i", inputPath.toAbsolutePath().toString(),
                 "-i", faviconPath,
-                "-filter_complex", "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15",
-                "-c:v", "libx264",
+                "-filter_complex", filterComplex,
+                "-c:v", CODEC_H264,
                 "-crf", "20",
                 "-an",
                 "-muxdelay", "0",
@@ -240,13 +225,7 @@ public class FFmpegService {
             Process process = pb.start();
 
             StringBuilder outputLog = new StringBuilder();
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    log.debug("FFmpeg Export: {}", line);
-                    outputLog.append(line).append("\n");
-                }
-            }
+            logProcessOutputAndAppend(process, "FFmpeg Export:", outputLog);
 
             int exitCode = process.waitFor();
             if (exitCode != 0) {
@@ -260,6 +239,42 @@ public class FFmpegService {
             log.error("Erro ao exportar vídeo", e);
             Thread.currentThread().interrupt();
             throw new ArquivoIOException();
+        }
+    }
+
+    private void logProcessOutput(Process process, String logPrefix) throws IOException {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("{} {}", logPrefix, line);
+            }
+        }
+    }
+
+    private void logProcessOutputAndAppend(Process process, String logPrefix, StringBuilder outputLog) throws IOException {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("{} {}", logPrefix, line);
+                outputLog.append(line).append("\n");
+            }
+        }
+    }
+
+    private void deleteChunk(String chunk) {
+        try {
+            Files.deleteIfExists(Paths.get(chunk));
+        } catch (IOException e) {
+            log.warn("Erro ao remover chunk: {}", chunk, e);
+        }
+    }
+
+    private String getFaviconPath() {
+        try {
+            java.io.File resource = org.springframework.util.ResourceUtils.getFile(FAVICON_CLASSPATH);
+            return resource.getAbsolutePath();
+        } catch (java.io.FileNotFoundException _) {
+            return FAVICON_FALLBACK_PATH;
         }
     }
 }

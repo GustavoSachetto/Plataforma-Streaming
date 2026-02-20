@@ -25,7 +25,6 @@ public class FixedProtocolGenerator {
 
     public static String generate() {
         long timestamp = System.currentTimeMillis();
-        
         long seq = SEQUENCE.getAndIncrement() % 1296;
 
         String timePart = toBase36Padded(timestamp, 8);

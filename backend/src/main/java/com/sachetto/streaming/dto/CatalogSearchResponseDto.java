@@ -1,16 +1,7 @@
 package com.sachetto.streaming.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class CatalogSearchResponseDto {
-    private String id;
-    private String name;
-    private String content;
-}
+public record CatalogSearchResponseDto(
+	String id,
+	String name,
+	String content
+) { }

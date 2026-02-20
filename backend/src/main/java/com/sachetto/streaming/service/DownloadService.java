@@ -20,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class DownloadService {
 
+    private static final String UPLOADS_DIR = "uploads";
+
 	private final UsuarioRepository usuarioRepository;
 	private final FileRepository fileRepository;
     private final StorageService storageService;
@@ -27,47 +29,46 @@ public class DownloadService {
     private final FFmpegService ffmpegService;
 
     public Resource getPlaylist(UUID uploadId) {
-        Path path = Paths.get("uploads", uploadId.toString(), "playlist.m3u8");
+        Path path = Paths.get(UPLOADS_DIR, uploadId.toString(), "playlist.m3u8");
         log.debug("Loading playlist from: {}", path);
         return storageService.load(path.toString());
     }
     
     public Resource getSegment(UUID uploadId, String segmentName) {
-         Path originalPath = Paths.get("uploads", uploadId.toString(), segmentName);
-         Path watermarkDir = Paths.get("uploads", uploadId.toString(), "watermarked");
-         Path watermarkPath = watermarkDir.resolve(segmentName);
+        Path originalPath = Paths.get(UPLOADS_DIR, uploadId.toString(), segmentName);
+        Path watermarkDir = Paths.get(UPLOADS_DIR, uploadId.toString(), "watermarked");
+        Path watermarkPath = watermarkDir.resolve(segmentName);
 
-         log.debug("Requesting segment: {}", segmentName);
+        log.debug("Requesting segment: {}", segmentName);
 
-         try {
-             if (java.nio.file.Files.exists(watermarkPath)) {
-                 log.debug("Serving cached watermarked segment: {}", watermarkPath);
-                 return storageService.load(watermarkPath.toString());
-             }
+        try {
+            if (java.nio.file.Files.exists(watermarkPath)) {
+                log.debug("Serving cached watermarked segment: {}", watermarkPath);
+                return storageService.load(watermarkPath.toString());
+            }
 
-             if (java.nio.file.Files.notExists(watermarkDir)) {
-                 java.nio.file.Files.createDirectories(watermarkDir);
-             }
+            if (java.nio.file.Files.notExists(watermarkDir)) {
+                java.nio.file.Files.createDirectories(watermarkDir);
+            }
 
-             log.info("Generating watermark for segment: {}", segmentName);
-             
-             Usuario usuario = usuarioRepository.findById(1L).orElseThrow(); // mock usuário
-             File file = fileRepository.findById(uploadId).orElseThrow();
-             
-             String codigo = watermarkService.criarOuRecuperar(usuario, file);
-             ffmpegService.addWatermark(originalPath, watermarkPath, codigo);
-
-             return storageService.load(watermarkPath.toString());
-
-         } catch (java.io.IOException e) {
-             log.error("Error handling watermark for segment: {}", segmentName, e);
-             log.warn("Falling back to original segment due to watermark error");
-             return storageService.load(originalPath.toString());
-         }
+            log.info("Generating watermark for segment: {}", segmentName);
+            
+            Usuario usuario = usuarioRepository.findById(1L).orElseThrow(); // mock usuário
+            File file = fileRepository.findById(uploadId).orElseThrow();
+            
+            String codigo = watermarkService.criarOuRecuperar(usuario, file);
+            ffmpegService.addWatermark(originalPath, watermarkPath, codigo);
+            return storageService.load(watermarkPath.toString());
+        } catch (java.io.IOException e) {
+            log.error("Error handling watermark for segment: {}", segmentName, e);
+            log.warn("Falling back to original segment due to watermark error");
+            return storageService.load(originalPath.toString());
+        }
     }
+
     public Resource exportFile(UUID uploadId) {
-        Path playlistPath = Paths.get("uploads", uploadId.toString(), "playlist.m3u8");
-        Path exportPath = Paths.get("uploads", uploadId.toString(), "export.mp4");
+        Path playlistPath = Paths.get(UPLOADS_DIR, uploadId.toString(), "playlist.m3u8");
+        Path exportPath = Paths.get(UPLOADS_DIR, uploadId.toString(), "export.mp4");
 
         log.debug("Requesting export: {}", exportPath);
 
@@ -77,7 +78,12 @@ public class DownloadService {
 		}
 
 		log.info("Generating export for uploadId: {}", uploadId);
-		ffmpegService.export(playlistPath, exportPath);
+		
+		Usuario usuario = usuarioRepository.findById(1L).orElseThrow();
+		File file = fileRepository.findById(uploadId).orElseThrow();
+		String codigo = watermarkService.criarOuRecuperar(usuario, file);
+		
+		ffmpegService.export(playlistPath, exportPath, codigo);
 
 		return storageService.load(exportPath.toString());
     }

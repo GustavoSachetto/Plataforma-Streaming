@@ -1,15 +1,19 @@
 package com.sachetto.streaming.util;
 
 import java.io.BufferedInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 
 import org.springframework.web.multipart.MultipartFile;
+
+import com.sachetto.streaming.exception.ChecksumException;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -24,7 +28,7 @@ public class CheckSumUtil {
         try (InputStream is = new BufferedInputStream(Files.newInputStream(path))) {
             return calculateHash(List.of(is));
         } catch (Exception _) {
-            throw new RuntimeException();
+            throw new ChecksumException();
         }
     }
     
@@ -54,11 +58,11 @@ public class CheckSumUtil {
             }
             return HexFormat.of().formatHex(digest.digest()).equalsIgnoreCase(expectedFullHash);
         } catch (Exception _) {
-            throw new RuntimeException();
+            throw new ChecksumException();
         }
     }
 
-    private static String calculateHash(List<InputStream> streams) throws Exception {
+    private static String calculateHash(List<InputStream> streams) throws NoSuchAlgorithmException, IOException {
         MessageDigest digest = MessageDigest.getInstance(ALGORITHM);
         byte[] buffer = new byte[BUFFER_8KB];
 
