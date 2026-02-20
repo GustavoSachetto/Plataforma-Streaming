@@ -31,14 +31,9 @@ public class FFmpegService {
                 Files.createDirectories(outputDirPath);
             }
 
-            String outputPattern = outputDirPath.toAbsolutePath().resolve("video_%03d.ts").toString();
-            // Use system ffmpeg
-            String ffmpegPath = "ffmpeg";
-
-            log.debug("Caminho do FFmpeg: {}", ffmpegPath);
-            
+            String outputPattern = outputDirPath.toAbsolutePath().resolve("video_%03d.ts").toString();           
             ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
+                "ffmpeg",
                 "-i", inputFile.getAbsolutePath(),
                 "-c", "copy",           
                 "-map", "0",            
@@ -87,13 +82,9 @@ public class FFmpegService {
             Files.write(listFilePath, listContent.toString().getBytes());
 
             String playlistPath = outputDirPath.toAbsolutePath().resolve("playlist.m3u8").toString();
-            // Use system ffmpeg
-            String ffmpegPath = "ffmpeg";
-
-            log.debug("Caminho do FFmpeg: {}", ffmpegPath);
             
             ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
+                "ffmpeg",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", listFilePath.toAbsolutePath().toString(),
@@ -129,7 +120,6 @@ public class FFmpegService {
             
             log.info("HLS formatado com sucesso. Removendo chunks...");
             
-            // Remove chunks
             for (String chunk : chunksPath) {
                 try {
                     Files.deleteIfExists(Paths.get(chunk));
@@ -138,9 +128,7 @@ public class FFmpegService {
                 }
             }
             
-            // Remove list file
             Files.deleteIfExists(listFilePath);
-            
         } catch (IOException | InterruptedException e) {
             log.error("Erro durante a formatação HLS", e);
             Thread.currentThread().interrupt();
@@ -148,12 +136,9 @@ public class FFmpegService {
         }
     }
 
-    public void addWatermark(Path inputPath, Path outputPath) {
+    public void addWatermark(Path inputPath, Path outputPath, String code) {
         log.info("Adicionando marca d'água em: {}", inputPath.getFileName());
         try {
-            // Use system ffmpeg to avoid segfault with bundled version 4.4.1
-            String ffmpegPath = "ffmpeg"; 
-            
             String faviconPath;
             try {
                 java.io.File resource = org.springframework.util.ResourceUtils.getFile("classpath:static/favicon.ico");
@@ -169,20 +154,28 @@ public class FFmpegService {
                 throw new java.io.FileNotFoundException("Favicon não encontrado: " + faviconPath);
             }
 
+            String filterComplex = "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15";
+
+            if (code != null && !code.isEmpty()) {
+                String escapedCode = code.replace(":", "\\:").replace("'", "'\\\\''");
+                filterComplex += "[v1];[v1]drawtext=text='" + escapedCode + "':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=10:y=10";
+            }
+
+
             log.debug("Usando favicon: {}", faviconPath);
 
             // ffmpeg -i playlist0.ts -i ... -filter_complex "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15" -c:v libx264 -crf 20 -c:a copy teste.ts
             ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
+                "ffmpeg",
                 "-y",
-                "-copyts", // MANTÉM OS TIMESTAMPS ORIGINAIS DO CHUNK
+                "-copyts", 
                 "-i", inputPath.toAbsolutePath().toString(),
                 "-i", faviconPath,
-                "-filter_complex", "[1:v]scale=50:-1[logo]; [0:v][logo]overlay=W-w-15:H-h-15",
+                "-filter_complex", filterComplex,
                 "-c:v", "libx264",
                 "-crf", "20",
-                "-an", // Garantindo que não tente processar áudio inexistente
-                "-muxdelay", "0", // Remove atraso de multiplexação
+                "-an", 
+                "-muxdelay", "0",
                 outputPath.toAbsolutePath().toString()
             );
 
@@ -214,9 +207,7 @@ public class FFmpegService {
     }
     public void export(Path inputPath, Path outputPath) {
         log.info("Exporting video with watermark: {}", inputPath.getFileName());
-        try {
-            String ffmpegPath = "ffmpeg";
-            
+        try {          
             String faviconPath;
             try {
                 java.io.File resource = org.springframework.util.ResourceUtils.getFile("classpath:static/favicon.ico");
@@ -232,7 +223,7 @@ public class FFmpegService {
             }
 
             ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
+                "ffmpeg",
                 "-y",
                 "-copyts",
                 "-i", inputPath.toAbsolutePath().toString(),

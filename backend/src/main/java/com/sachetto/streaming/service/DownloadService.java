@@ -7,16 +7,23 @@ import java.util.UUID;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
+import com.sachetto.streaming.entity.File;
+import com.sachetto.streaming.entity.Usuario;
+import com.sachetto.streaming.repository.FileRepository;
+import com.sachetto.streaming.repository.UsuarioRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class DownloadService {
 
+	private final UsuarioRepository usuarioRepository;
+	private final FileRepository fileRepository;
     private final StorageService storageService;
-
+    private final WatermarkService watermarkService;
     private final FFmpegService ffmpegService;
 
     public Resource getPlaylist(UUID uploadId) {
@@ -43,7 +50,12 @@ public class DownloadService {
              }
 
              log.info("Generating watermark for segment: {}", segmentName);
-             ffmpegService.addWatermark(originalPath, watermarkPath);
+             
+             Usuario usuario = usuarioRepository.findById(1L).orElseThrow(); // mock usuário
+             File file = fileRepository.findById(uploadId).orElseThrow();
+             
+             String codigo = watermarkService.criarOuRecuperar(usuario, file);
+             ffmpegService.addWatermark(originalPath, watermarkPath, codigo);
 
              return storageService.load(watermarkPath.toString());
 
