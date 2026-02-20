@@ -9,6 +9,8 @@ export default function FileUploader() {
     const [loaded, setLoaded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [file, setFile] = useState<File | null>(null);
+    const [customFilename, setCustomFilename] = useState("");
+    const [fileContent, setFileContent] = useState("");
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState("");
     const [uploadId, setUploadId] = useState("");
@@ -102,7 +104,6 @@ export default function FileUploader() {
         }
 
         const fileHash = await calculateSHA256(new Blob([fullBuffer]));
-        const filename = file.name;
 
         setStatus("Initializing upload...");
 
@@ -111,8 +112,10 @@ export default function FileUploader() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 fileSize: totalSize,
-                filename,
-                fileHash
+                filename: customFilename,
+                filecontent: fileContent,
+                fileHash,
+                totalChunks: chunkFiles.length
             })
         });
 
@@ -192,8 +195,29 @@ export default function FileUploader() {
                 <div className="flex flex-col gap-4">
                     <div className="text-green-600 font-semibold">FFmpeg is ready</div>
                     <input
+                        type="text"
+                        placeholder="Nome desejado do arquivo"
+                        value={customFilename}
+                        onChange={(e) => setCustomFilename(e.target.value)}
+                        className="block w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-violet-500 focus:outline-none"
+                    />
+
+                    <textarea
+                        placeholder="Conteúdo do arquivo"
+                        value={fileContent}
+                        onChange={(e) => setFileContent(e.target.value)}
+                        className="block w-full p-2 border border-gray-300 rounded text-sm h-24 focus:ring-1 focus:ring-violet-500 focus:outline-none"
+                    />
+
+                    <input
                         type="file"
-                        onChange={(e) => setFile(e.target.files?.item(0) || null)}
+                        onChange={(e) => {
+                            const selectedFile = e.target.files?.item(0) || null;
+                            setFile(selectedFile);
+                            if (selectedFile && !customFilename) {
+                                setCustomFilename(selectedFile.name);
+                            }
+                        }}
                         className="block w-full text-sm text-gray-500
                   file:mr-4 file:py-2 file:px-4
                   file:rounded-full file:border-0
@@ -202,10 +226,10 @@ export default function FileUploader() {
                   hover:file:bg-violet-100"
                     />
 
-                    {file && (
+                    {file && customFilename.trim() !== "" && fileContent.trim() !== "" && (
                         <button
                             onClick={uploadFile}
-                            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold"
                         >
                             Upload & Segment
                         </button>

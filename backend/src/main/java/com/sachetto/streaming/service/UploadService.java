@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -19,11 +20,9 @@ import com.sachetto.streaming.dto.FullRequestDto;
 import com.sachetto.streaming.dto.FullResponseDto;
 import com.sachetto.streaming.dto.InitRequestDto;
 import com.sachetto.streaming.dto.InitResponseDto;
-import com.sachetto.streaming.entity.Chunk;
 import com.sachetto.streaming.entity.File;
 import com.sachetto.streaming.exception.ArquivoIOException;
 import com.sachetto.streaming.exception.ChecksumException;
-import com.sachetto.streaming.repository.ChunkRepository;
 import com.sachetto.streaming.repository.FileRepository;
 import com.sachetto.streaming.util.CheckSumUtil;
 
@@ -31,13 +30,13 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class UploadService {
 	
 	private final FileRepository fileRepository; 
-	private final ChunkRepository chunkRepository;
+	private final ChunkService chunkService;
 	private final StorageService storageService;
 	private final FFmpegService ffmpegService;
 
@@ -49,10 +48,12 @@ public class UploadService {
 				.name(initRequestDto.filename())
 				.hash(initRequestDto.fileHash())
 				.size(initRequestDto.fileSize())
+				.content(initRequestDto.filecontent())
 				.valid(false)
 				.build());
 		
 		log.info("Upload inicializado com ID: {}", file.getId());
+		chunkService.registerUpload(file.getId(), initRequestDto.totalChunks());
 		return new InitResponseDto(file.getId());
 	}
 	
@@ -108,14 +109,6 @@ public class UploadService {
                             (long) index, 
                             is
                         );
-                        chunkRepository.save(
-                            Chunk.builder()
-                                .index((long) index)
-                                .hash(chunkHash)
-                                .path(storagePath)
-                                .file(file)
-                                .build()
-                        );
                         log.debug("Chunk {} processado e salvo.", index);
                     } catch (IOException e) {
                     	log.error("Erro ao processar chunk {}", index, e);
@@ -130,7 +123,16 @@ public class UploadService {
             fileRepository.save(file);
             log.info("Upload completo e processado com sucesso para arquivo ID: {}", file.getId());
    
-            List<String> chunksPath = chunkRepository.findPathsByFileIdOrderByIndexAsc(file.getId());
+            List<String> chunksPath = new ArrayList<>();
+            // full uploads index starts at 0, goes to chunks length
+            for (int i = 0;; i++) {
+                Path p = Paths.get("uploads", file.getId().toString(), i + ".mp4");
+                if (Files.exists(p)) {
+                    chunksPath.add(p.toAbsolutePath().toString());
+                } else {
+                    break;
+                }
+            }
 
             return new FullResponseDto(file.getId(), chunksPath);
         } catch (Exception e) {
@@ -157,16 +159,10 @@ public class UploadService {
 			
 			String path = storageService.upload(chunkRequestDto.uploadId(), chunkRequestDto.index(), chunkRequestDto.file().getInputStream());
 			
-			Chunk chunk = chunkRepository.save(
-				Chunk.builder()
-					.hash(chunkRequestDto.chunkHash())
-					.index(chunkRequestDto.index())
-					.path(path)
-					.file(file)
-					.build());
+			chunkService.registerChunk(chunkRequestDto.uploadId(), chunkRequestDto.index());
 			
 			log.debug("Chunk {} salvo com sucesso.", chunkRequestDto.index());
-			return new ChunkResponseDto(chunk.getId());
+			return new ChunkResponseDto(chunkRequestDto.uploadId());
 		} catch (IOException e) {
 			log.error("Erro ao salvar chunk", e);
 			throw new ArquivoIOException();
@@ -178,7 +174,7 @@ public class UploadService {
 		log.info("Finalizando upload ID: {}", completeRequestDto.uploadId());
 		File file = fileRepository.findById(completeRequestDto.uploadId()).orElseThrow();
 		
-		List<String> chunksPath = chunkRepository.findPathsByFileIdOrderByIndexAsc(completeRequestDto.uploadId());
+		List<String> chunksPath = chunkService.validateAndGetChunkPaths(completeRequestDto.uploadId());
 
 		validarCheckSumPorFile(chunksPath, file);
 		ffmpegService.formatHLS(chunksPath, file.getId());
@@ -186,7 +182,7 @@ public class UploadService {
 		file.setValid(true);
 		file = fileRepository.save(file);
 		
-		chunkRepository.deleteByFileId(file.getId());
+		chunkService.cleanup(file.getId());
 		
 		log.info("Upload ID: {} finalizado e validado.", file.getId());
 		return new CompleteResponseDto(file.getId(), chunksPath);

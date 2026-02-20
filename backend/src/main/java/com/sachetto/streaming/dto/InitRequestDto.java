@@ -13,5 +13,12 @@ public record InitRequestDto(
 	String filename,
 	
 	@NotBlank
-	String fileHash
+	String filecontent,
+	
+	@NotBlank
+	String fileHash,
+	
+	@NotNull
+	@Positive
+	Long totalChunks
 ) { }

@@ -7,6 +7,8 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import com.sachetto.streaming.listener.FileElasticSyncListener;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -28,7 +30,7 @@ import lombok.NoArgsConstructor;
 @Table(name = "tb_file", uniqueConstraints = {
 	@UniqueConstraint(name = "uq_name", columnNames = {"name"})
 })
-@EntityListeners(AuditingEntityListener.class)
+@EntityListeners({AuditingEntityListener.class, FileElasticSyncListener.class})
 public class File {
 
 	@Id
@@ -39,6 +41,7 @@ public class File {
 	private Long size;
 	private String hash;
 	private String name;
+	private String content;
 	private Boolean valid;
 	
 	@CreatedDate

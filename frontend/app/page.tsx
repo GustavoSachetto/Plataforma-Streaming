@@ -3,6 +3,7 @@
 import { useState } from "react";
 import FileUploader from "./components/FileUploader";
 import VideoPlayer from "./components/VideoPlayer";
+import CatalogSearch from "./components/CatalogSearch";
 
 export default function Home() {
   const [videoId, setVideoId] = useState("");
@@ -13,6 +14,8 @@ export default function Home() {
         <div className="flex-1 w-full">
           <h1 className="text-2xl font-bold mb-4">Upload Video</h1>
           <FileUploader />
+
+          <CatalogSearch onSelectVideo={(id) => setVideoId(id)} />
         </div>
 
         <div className="flex-1 w-full flex flex-col gap-4">

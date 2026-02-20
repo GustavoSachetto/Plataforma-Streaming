@@ -10,3 +10,12 @@ export interface ManifestResponseDto {
     fileHash: string;
     chunks: ChunkIndexResponseDto[];
 }
+
+export interface FileRead {
+    id: string;
+    filename: string;
+    // adding optional fields just in case
+    fileSize?: number;
+    fileHash?: string;
+    [key: string]: any;
+}
