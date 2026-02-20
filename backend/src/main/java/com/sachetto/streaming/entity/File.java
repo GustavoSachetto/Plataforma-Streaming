@@ -41,6 +41,8 @@ public class File {
 	private Long size;
 	private String hash;
 	private String name;
+
+	@Column(columnDefinition = "TEXT")
 	private String content;
 	private Boolean valid;
 	private String thumbnail;
